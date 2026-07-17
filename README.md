@@ -1,25 +1,24 @@
 # skycode
 
-Plateforme d'automatisation de code review.
+A code review automation platform.
 
-## Présentation
+## Overview
 
-**skycode** est une plateforme d'automatisation de la revue de code. Elle vise à
-intégrer l'analyse automatique des changements de code dans le flux de
-développement afin d'accélérer les revues, d'améliorer la qualité et de réduire
-la charge manuelle des équipes.
+**skycode** is a platform for automating code review. It aims to integrate
+automated analysis of code changes into the development workflow, speeding up
+reviews, improving quality, and reducing the manual burden on teams.
 
-## Objectifs
+## Goals
 
-- Automatiser l'analyse des pull requests et des diffs
-- Détecter les problèmes de correction, de sécurité et de style
-- Fournir des retours clairs et actionnables directement dans le flux de travail
-- S'intégrer aux plateformes d'hébergement de code (GitHub, etc.)
+- Automate the analysis of pull requests and diffs
+- Detect correctness, security, and style issues
+- Provide clear, actionable feedback directly in the workflow
+- Integrate with code hosting platforms (GitHub, etc.)
 
-## Statut
+## Status
 
-🚧 Projet en cours d'initialisation.
+🚧 Project under initialization.
 
-## Licence
+## License
 
-À définir.
+To be defined.
