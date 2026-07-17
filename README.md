@@ -1,24 +1,22 @@
 # skycode
 
-A code review automation platform.
+A platform to control code review processes across multiple repositories.
 
-## Overview
+## Setup
 
-**skycode** is a platform for automating code review. It aims to integrate
-automated analysis of code changes into the development workflow, speeding up
-reviews, improving quality, and reducing the manual burden on teams.
+Requirements: Node.js 20+, Docker.
 
-## Goals
+```bash
+npm install
+cp .env.example .env          # then set BETTER_AUTH_SECRET
+npm run db:up                 # start postgres
+npm run db:migrate            # create tables
+npm run dev                   # http://localhost:3000
+```
 
-- Automate the analysis of pull requests and diffs
-- Detect correctness, security, and style issues
-- Provide clear, actionable feedback directly in the workflow
-- Integrate with code hosting platforms (GitHub, etc.)
+## Tests
 
-## Status
-
-🚧 Project under initialization.
-
-## License
-
-To be defined.
+```bash
+npm test         # unit (Vitest)
+npm run test:e2e # end-to-end (Playwright); requires db up + migrated
+```
