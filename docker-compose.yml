@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: skycode
+      POSTGRES_PASSWORD: skycode
+      POSTGRES_DB: skycode
+    ports:
+      - "5432:5432"
+    volumes:
+      - skycode_pgdata:/var/lib/postgresql/data
+
+volumes:
+  skycode_pgdata:
