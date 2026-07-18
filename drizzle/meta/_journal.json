@@ -8,6 +8,13 @@
       "when": 1784331001764,
       "tag": "0000_clear_giant_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784367727547,
+      "tag": "0001_woozy_william_stryker",
+      "breakpoints": true
     }
   ]
 }
