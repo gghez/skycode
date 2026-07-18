@@ -25,4 +25,17 @@ describe("token-cipher", () => {
     expect(() => encryptToken("x")).toThrow();
     process.env.SKYCODE_ENCRYPTION_KEY = KEY;
   });
+
+  it("throws a descriptive error when the key is the right length but not hex", () => {
+    process.env.SKYCODE_ENCRYPTION_KEY = "z".repeat(64);
+    expect(() => encryptToken("x")).toThrow(/64-character hex string/);
+    process.env.SKYCODE_ENCRYPTION_KEY = KEY;
+  });
+
+  it("throws a descriptive error on a corrupt payload", () => {
+    expect(() => decryptToken("")).toThrow(/corrupt token payload/i);
+    expect(() => decryptToken("only-one-part")).toThrow(/corrupt token payload/i);
+    expect(() => decryptToken("aa:bb")).toThrow(/corrupt token payload/i);
+    expect(() => decryptToken("aa:bb:cc:dd")).toThrow(/corrupt token payload/i);
+  });
 });
