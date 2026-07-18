@@ -10,6 +10,7 @@ import {
   removeRepo,
   NotABotTokenError,
   ConnectionNotFoundError,
+  InvalidInstanceUrlError,
   type AddConnectionResult,
   type DiscoveredProject,
 } from "@/lib/repos/service";
@@ -24,6 +25,12 @@ function toMessage(e: unknown): string {
   if (e instanceof GitlabNotFoundError) return "Projet ou groupe GitLab introuvable.";
   if (e instanceof GitlabUnavailableError) return "GitLab est injoignable pour le moment.";
   if (e instanceof ConnectionNotFoundError) return "Connexion introuvable.";
+  if (e instanceof InvalidInstanceUrlError) return "URL d'instance GitLab invalide.";
+  // Unexpected/unhandled error (e.g. missing config, DB constraint violation): log it
+  // server-side so it's diagnosable, since the user only ever sees a generic message.
+  // Only the error itself is logged here, never the action's input, so a plaintext
+  // GitLab token (which lives in the input, not in these typed errors) can't leak.
+  console.error("Unexpected error in repos action:", e);
   return "Une erreur inattendue est survenue.";
 }
 
@@ -68,9 +75,13 @@ export async function listUntrackedProjectsAction(
 
 export async function removeRepoAction(repoId: string): Promise<ActionResult<null>> {
   const { organizationId } = await requireActiveOrganization();
-  await removeRepo(organizationId, repoId);
-  revalidatePath("/repos");
-  return { ok: true, data: null };
+  try {
+    await removeRepo(organizationId, repoId);
+    revalidatePath("/repos");
+    return { ok: true, data: null };
+  } catch (e) {
+    return { ok: false, error: toMessage(e) };
+  }
 }
 
 export async function removeConnectionAction(connectionId: string): Promise<ActionResult<null>> {

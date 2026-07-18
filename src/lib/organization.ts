@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { member, organization } from "@/db/schema";
 
@@ -8,6 +8,7 @@ export async function getPrimaryOrganizationId(userId: string): Promise<string |
     .select({ organizationId: member.organizationId })
     .from(member)
     .where(eq(member.userId, userId))
+    .orderBy(asc(member.createdAt))
     .limit(1);
   return rows[0]?.organizationId ?? null;
 }

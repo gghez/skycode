@@ -30,7 +30,16 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    organization(),
+    // This slice only needs a personal organization per user (created directly via
+    // ensurePersonalOrganization above, not through this plugin's endpoints). Team
+    // management (invitations, roles) is deferred to a future "Teams" slice, so the
+    // out-of-scope surface this plugin otherwise exposes is narrowed here: users can't
+    // create additional organizations through /organization/create, and organizations
+    // can't be cascade-deleted through /organization/delete.
+    organization({
+      allowUserToCreateOrganization: false,
+      disableOrganizationDeletion: true,
+    }),
     // nextCookies must be the last plugin so it can set cookies from server actions.
     nextCookies(),
   ],

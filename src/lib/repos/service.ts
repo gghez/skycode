@@ -21,6 +21,51 @@ export class ConnectionNotFoundError extends Error {
   }
 }
 
+export class InvalidInstanceUrlError extends Error {
+  constructor() {
+    super("Invalid GitLab instance URL");
+    this.name = "InvalidInstanceUrlError";
+  }
+}
+
+// Hostnames/ranges that are never a legitimate public GitLab instance.
+const PRIVATE_HOSTNAME_PATTERNS: RegExp[] = [
+  /^localhost$/i,
+  /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^\[?::1\]?$/,
+  /^169\.254\.\d{1,3}\.\d{1,3}$/,
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+];
+
+/**
+ * Rejects instanceUrl values that are obviously unsafe before we let
+ * createGitlabClient fetch them, to raise the bar against SSRF through a
+ * user-supplied GitLab instance URL.
+ *
+ * This is NOT a complete SSRF defence: it is a hostname/scheme allowlist
+ * checked against the literal string the user typed. A public hostname
+ * that resolves (via DNS, including DNS rebinding) to a private address
+ * is not caught here.
+ */
+function assertAllowedInstanceUrl(instanceUrl: string): void {
+  let url: URL;
+  try {
+    url = new URL(instanceUrl);
+  } catch {
+    throw new InvalidInstanceUrlError();
+  }
+
+  const isProduction = process.env.NODE_ENV === "production";
+  const schemeAllowed = url.protocol === "https:" || (url.protocol === "http:" && !isProduction);
+  if (!schemeAllowed) throw new InvalidInstanceUrlError();
+
+  if (isProduction && PRIVATE_HOSTNAME_PATTERNS.some((re) => re.test(url.hostname))) {
+    throw new InvalidInstanceUrlError();
+  }
+}
+
 export interface TrackedRepoView {
   id: string;
   gitlabProjectId: number;
@@ -76,6 +121,7 @@ export async function addConnection(
   input: { instanceUrl: string; token: string },
 ): Promise<AddConnectionResult> {
   const instanceUrl = input.instanceUrl.trim();
+  assertAllowedInstanceUrl(instanceUrl);
   const client = createGitlabClient(instanceUrl, input.token);
 
   // Validate token + resolve bot identity and scope (throws GitlabAuthError on 401).
@@ -86,49 +132,38 @@ export async function addConnection(
   const tokenExpiresAt = await bestEffortExpiry(client);
 
   // Dedup: reuse an existing connection for the same scope, refreshing its token/identity.
-  const [existing] = await db
-    .select()
-    .from(gitlabConnection)
-    .where(
-      and(
-        eq(gitlabConnection.organizationId, organizationId),
-        eq(gitlabConnection.instanceUrl, instanceUrl),
-        eq(gitlabConnection.scopeType, scope.scopeType),
-        eq(gitlabConnection.scopeGitlabId, scope.scopeGitlabId),
-      ),
-    )
-    .limit(1);
-
-  let connectionId: string;
-  if (existing) {
-    connectionId = existing.id;
-    await db
-      .update(gitlabConnection)
-      .set({
-        token: encryptToken(input.token),
-        botUserId: botUser.id,
-        botUsername: botUser.username,
-        botName: botUser.name,
-        botAvatarUrl: botUser.avatar_url,
-        tokenExpiresAt,
-      })
-      .where(eq(gitlabConnection.id, connectionId));
-  } else {
-    connectionId = randomUUID();
-    await db.insert(gitlabConnection).values({
-      id: connectionId,
+  // A single upsert (instead of select-then-insert-or-update) avoids a race where two
+  // concurrent submissions for the same scope both miss the select and both try to
+  // insert, with the loser hitting the gitlab_connection_scope_unique constraint.
+  const refreshedFields = {
+    token: encryptToken(input.token),
+    botUserId: botUser.id,
+    botUsername: botUser.username,
+    botName: botUser.name,
+    botAvatarUrl: botUser.avatar_url,
+    tokenExpiresAt,
+  };
+  const [connectionRow] = await db
+    .insert(gitlabConnection)
+    .values({
+      id: randomUUID(),
       organizationId,
       instanceUrl,
       scopeType: scope.scopeType,
       scopeGitlabId: scope.scopeGitlabId,
-      token: encryptToken(input.token),
-      botUserId: botUser.id,
-      botUsername: botUser.username,
-      botName: botUser.name,
-      botAvatarUrl: botUser.avatar_url,
-      tokenExpiresAt,
-    });
-  }
+      ...refreshedFields,
+    })
+    .onConflictDoUpdate({
+      target: [
+        gitlabConnection.organizationId,
+        gitlabConnection.instanceUrl,
+        gitlabConnection.scopeType,
+        gitlabConnection.scopeGitlabId,
+      ],
+      set: refreshedFields,
+    })
+    .returning();
+  const connectionId = connectionRow.id;
 
   if (scope.scopeType === "project") {
     const project = await client.getProject(scope.scopeGitlabId);
@@ -220,8 +255,8 @@ export async function listConnectionsWithRepos(
   }));
 }
 
-// Used by Task 8; kept here so decryptToken import stays close to its callers.
-export function loadClientForConnection(row: typeof gitlabConnection.$inferSelect): GitlabClient {
+// Kept private: only used internally to build a client from a stored (encrypted) connection.
+function loadClientForConnection(row: typeof gitlabConnection.$inferSelect): GitlabClient {
   return createGitlabClient(row.instanceUrl, decryptToken(row.token));
 }
 
@@ -245,12 +280,7 @@ export async function listUntrackedProjects(
   connectionId: string,
 ): Promise<DiscoveredProject[]> {
   const connection = await requireOwnedConnection(organizationId, connectionId);
-  // A project-scoped connection tracks exactly one project (already tracked by
-  // addConnection), so there is nothing left to discover; avoid calling
-  // GitLab's group-projects endpoint with a project id, which 404s.
-  if (connection.scopeType !== "group") return [];
   const client = loadClientForConnection(connection);
-  const projects = await client.listGroupProjects(connection.scopeGitlabId);
   const trackedIds = new Set(
     (
       await db
@@ -259,6 +289,25 @@ export async function listUntrackedProjects(
         .where(eq(trackedRepo.connectionId, connectionId))
     ).map((r) => r.gitlabProjectId),
   );
+
+  // A project-scoped connection tracks exactly one project. If its lone repo was
+  // removed, it becomes "untracked" again and must be offered for re-activation
+  // (GitLab's group-projects endpoint can't be used here: it 404s on a project id).
+  if (connection.scopeType === "project") {
+    if (trackedIds.has(connection.scopeGitlabId)) return [];
+    const project = await client.getProject(connection.scopeGitlabId);
+    return [
+      {
+        gitlabProjectId: project.id,
+        name: project.name,
+        pathWithNamespace: project.path_with_namespace,
+        webUrl: project.web_url,
+        alreadyTracked: false,
+      },
+    ];
+  }
+
+  const projects = await client.listGroupProjects(connection.scopeGitlabId);
   return projects
     .filter((p) => !trackedIds.has(p.id))
     .map((p) => ({
