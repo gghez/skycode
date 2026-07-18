@@ -23,11 +23,11 @@ export async function getPrimaryOrganizationId(userId: string): Promise<string |
  * Idempotently returns the user's personal organization id, creating it if
  * missing. Safe to call concurrently for the same brand-new user: a
  * transaction-scoped advisory lock keyed on the user id serializes competing
- * callers, and the deterministic `personal-${userId}` slug (unique in the
- * schema) is used as a belt-and-braces guard via `onConflictDoNothing` in
- * case the lock is ever bypassed (e.g. by the signup hook's own
- * `createPersonalOrganization` call). Either way, exactly one organization
- * and one member row end up existing for the user.
+ * callers of this function, so exactly one of them creates the organization
+ * and member row while the rest observe it via the membership lookup. The
+ * deterministic `personal-${userId}` slug (unique in the schema) is also
+ * guarded with `onConflictDoNothing` as a defense-in-depth measure for the
+ * organization row specifically.
  */
 export async function ensurePersonalOrganization(userId: string, name: string): Promise<string> {
   const slug = `personal-${userId}`;
