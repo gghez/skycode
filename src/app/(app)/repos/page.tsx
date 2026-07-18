@@ -4,6 +4,18 @@ import { AddConnectionDialog } from "./_components/add-connection-dialog";
 import { AddRepoDialog } from "./_components/add-repo-dialog";
 import { RemoveRepoButton, RemoveConnectionButton } from "./_components/manage-buttons";
 
+// r.webUrl comes from whatever server the user pointed instanceUrl at, so it must not be
+// trusted as a safe href without checking its scheme first (e.g. a hostile GitLab-shaped
+// server could return web_url: "javascript:alert(1)").
+function isSafeHttpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export default async function ReposPage() {
   const { organizationId } = await requireActiveOrganization();
   const connections = await listConnectionsWithRepos(organizationId);
@@ -34,7 +46,7 @@ export default async function ReposPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {c.scopeType === "group" && <AddRepoDialog connectionId={c.id} />}
+                  <AddRepoDialog connectionId={c.id} />
                   <RemoveConnectionButton connectionId={c.id} />
                 </div>
               </header>
@@ -44,14 +56,18 @@ export default async function ReposPage() {
                 <ul className="divide-y">
                   {c.repos.map((r) => (
                     <li key={r.id} className="flex items-center justify-between px-4 py-3">
-                      <a
-                        href={r.webUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm underline-offset-4 hover:underline"
-                      >
-                        {r.pathWithNamespace}
-                      </a>
+                      {isSafeHttpUrl(r.webUrl) ? (
+                        <a
+                          href={r.webUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm underline-offset-4 hover:underline"
+                        >
+                          {r.pathWithNamespace}
+                        </a>
+                      ) : (
+                        <span className="text-sm">{r.pathWithNamespace}</span>
+                      )}
                       <RemoveRepoButton repoId={r.id} />
                     </li>
                   ))}

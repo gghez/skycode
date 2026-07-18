@@ -1,4 +1,6 @@
+import "dotenv/config";
 import { test, expect, type Page } from "@playwright/test";
+import postgres from "postgres";
 
 const MOCK_URL = "http://localhost:4000";
 const PASSWORD = "password123";
@@ -134,4 +136,75 @@ test("rejects a personal (non-bot) token with a clear message", async ({ page })
   await expect(page.getByText("@alice")).toHaveCount(0);
   await expect(page.getByText("@group_42_bot_e2e")).toHaveCount(0);
   await expect(page.getByText("Aucun repo pour l'instant")).toBeVisible();
+});
+
+test("adding a project token activates its single project immediately", async ({ page }) => {
+  await registerAndLandOnRepos(page, "e2e6");
+
+  await openConnectionAndSubmitToken(page, "project");
+
+  // A project-scoped token has exactly one project: no group-selection step.
+  await expect(page.getByRole("heading", { name: "Sélectionner les projets" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "acme/backend" })).toBeVisible();
+  await expect(page.getByText("@project_101_bot_e2e")).toBeVisible();
+});
+
+test("removing a project connection's repo is recoverable without re-entering a token", async ({
+  page,
+}) => {
+  await registerAndLandOnRepos(page, "e2e7");
+
+  await openConnectionAndSubmitToken(page, "project");
+  await expect(page.getByRole("link", { name: "acme/backend" })).toBeVisible();
+
+  // Remove the connection's only repo.
+  const backendRow = page.locator("li").filter({ has: page.getByRole("link", { name: "acme/backend" }) });
+  await backendRow.getByRole("button", { name: "Retirer" }).click();
+  await expect(page.getByRole("link", { name: "acme/backend" })).toHaveCount(0);
+  await expect(page.getByText("Aucun projet suivi.")).toBeVisible();
+
+  // Recover it via "Ajouter un repo" on the same (still project-scoped) connection,
+  // without ever re-pasting a token.
+  await page.getByRole("button", { name: "Ajouter un repo" }).click();
+  await expect(page.getByRole("heading", { name: "Ajouter un repo" })).toBeVisible();
+  const backendOption = page.getByLabel("acme/backend");
+  await expect(backendOption).toBeVisible();
+  await backendOption.check();
+  await page.getByRole("button", { name: "Activer 1 projet(s)" }).click();
+
+  await expect(page.getByRole("link", { name: "acme/backend" })).toBeVisible();
+});
+
+test("stores the token encrypted at rest, not as plaintext", async ({ page }) => {
+  const email = await registerAndLandOnRepos(page, "e2e8");
+  const plainToken = `enc-check-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+
+  await openConnectionAndSubmitToken(page, plainToken);
+  // Any token other than "personal"/"project" resolves to the group bot (group 42).
+  await expect(page.getByRole("heading", { name: "Sélectionner les projets" })).toBeVisible();
+  await page.getByLabel("acme/backend").check();
+  await page.getByRole("button", { name: "Activer 1 projet(s)" }).click();
+  await expect(page.getByRole("link", { name: "acme/backend" })).toBeVisible();
+
+  // Query the real database directly (not through the app) to prove the column actually
+  // holds ciphertext, not the plaintext token we just typed into the form. Scoped to this
+  // test's own freshly-registered user/organization so it's safe under parallel workers.
+  const sql = postgres(process.env.DATABASE_URL!, { max: 1 });
+  try {
+    const rows = await sql`
+      select gc.token
+      from gitlab_connection gc
+      join organization o on o.id = gc.organization_id
+      join member m on m.organization_id = o.id
+      join "user" u on u.id = m.user_id
+      where u.email = ${email}
+    `;
+    expect(rows).toHaveLength(1);
+    const storedToken = rows[0].token as string;
+    expect(storedToken.length).toBeGreaterThan(0);
+    expect(storedToken).not.toBe(plainToken);
+    expect(storedToken.includes(plainToken)).toBe(false);
+  } finally {
+    await sql.end();
+  }
 });
