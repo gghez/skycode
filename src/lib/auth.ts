@@ -1,8 +1,10 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { organization } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
+import { createPersonalOrganization, getPrimaryOrganizationId } from "@/lib/organization";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
@@ -10,6 +12,26 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 8,
   },
-  // nextCookies must be the last plugin so it can set cookies from server actions.
-  plugins: [nextCookies()],
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          await createPersonalOrganization(user.id, "Espace personnel");
+        },
+      },
+    },
+    session: {
+      create: {
+        before: async (session) => {
+          const organizationId = await getPrimaryOrganizationId(session.userId);
+          return { data: { ...session, activeOrganizationId: organizationId } };
+        },
+      },
+    },
+  },
+  plugins: [
+    organization(),
+    // nextCookies must be the last plugin so it can set cookies from server actions.
+    nextCookies(),
+  ],
 });
