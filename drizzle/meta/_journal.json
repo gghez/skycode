@@ -15,6 +15,13 @@
       "when": 1784367727547,
       "tag": "0001_woozy_william_stryker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784369125119,
+      "tag": "0002_blushing_talos",
+      "breakpoints": true
     }
   ]
 }

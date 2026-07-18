@@ -3,13 +3,6 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { member, organization } from "@/db/schema";
 
-export async function createPersonalOrganization(userId: string, name: string): Promise<string> {
-  const orgId = randomUUID();
-  await db.insert(organization).values({ id: orgId, name, slug: `personal-${userId}` });
-  await db.insert(member).values({ id: randomUUID(), organizationId: orgId, userId, role: "owner" });
-  return orgId;
-}
-
 export async function getPrimaryOrganizationId(userId: string): Promise<string | null> {
   const rows = await db
     .select({ organizationId: member.organizationId })
@@ -27,7 +20,10 @@ export async function getPrimaryOrganizationId(userId: string): Promise<string |
  * and member row while the rest observe it via the membership lookup. The
  * deterministic `personal-${userId}` slug (unique in the schema) is also
  * guarded with `onConflictDoNothing` as a defense-in-depth measure for the
- * organization row specifically.
+ * organization row, and the member insert is guarded the same way against
+ * the unique `(organization_id, user_id)` index, so a benign race between
+ * this function and another caller (e.g. the deferred signup hook) can
+ * never surface as a constraint-violation error.
  */
 export async function ensurePersonalOrganization(userId: string, name: string): Promise<string> {
   const slug = `personal-${userId}`;
@@ -69,7 +65,7 @@ export async function ensurePersonalOrganization(userId: string, name: string): 
     await tx
       .insert(member)
       .values({ id: randomUUID(), organizationId: orgId, userId, role: "owner" })
-      .onConflictDoNothing();
+      .onConflictDoNothing({ target: [member.organizationId, member.userId] });
 
     return orgId;
   });

@@ -4,7 +4,7 @@ import { organization } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
-import { createPersonalOrganization, getPrimaryOrganizationId } from "@/lib/organization";
+import { ensurePersonalOrganization, getPrimaryOrganizationId } from "@/lib/organization";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
@@ -16,7 +16,7 @@ export const auth = betterAuth({
     user: {
       create: {
         after: async (user) => {
-          await createPersonalOrganization(user.id, "Espace personnel");
+          await ensurePersonalOrganization(user.id, "Espace personnel");
         },
       },
     },
