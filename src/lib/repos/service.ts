@@ -217,3 +217,95 @@ export async function listConnectionsWithRepos(
 export function loadClientForConnection(row: typeof gitlabConnection.$inferSelect): GitlabClient {
   return createGitlabClient(row.instanceUrl, decryptToken(row.token));
 }
+
+async function requireOwnedConnection(
+  organizationId: string,
+  connectionId: string,
+): Promise<typeof gitlabConnection.$inferSelect> {
+  const [row] = await db
+    .select()
+    .from(gitlabConnection)
+    .where(
+      and(eq(gitlabConnection.id, connectionId), eq(gitlabConnection.organizationId, organizationId)),
+    )
+    .limit(1);
+  if (!row) throw new Error("Connection not found for this organization");
+  return row;
+}
+
+export async function listUntrackedProjects(
+  organizationId: string,
+  connectionId: string,
+): Promise<DiscoveredProject[]> {
+  const connection = await requireOwnedConnection(organizationId, connectionId);
+  const client = loadClientForConnection(connection);
+  const projects = await client.listGroupProjects(connection.scopeGitlabId);
+  const trackedIds = new Set(
+    (
+      await db
+        .select({ gitlabProjectId: trackedRepo.gitlabProjectId })
+        .from(trackedRepo)
+        .where(eq(trackedRepo.connectionId, connectionId))
+    ).map((r) => r.gitlabProjectId),
+  );
+  return projects
+    .filter((p) => !trackedIds.has(p.id))
+    .map((p) => ({
+      gitlabProjectId: p.id,
+      name: p.name,
+      pathWithNamespace: p.path_with_namespace,
+      webUrl: p.web_url,
+      alreadyTracked: false,
+    }));
+}
+
+export async function activateRepos(
+  organizationId: string,
+  connectionId: string,
+  gitlabProjectIds: number[],
+): Promise<void> {
+  if (gitlabProjectIds.length === 0) return;
+  const connection = await requireOwnedConnection(organizationId, connectionId);
+  const client = loadClientForConnection(connection);
+
+  const source =
+    connection.scopeType === "group"
+      ? await client.listGroupProjects(connection.scopeGitlabId)
+      : [await client.getProject(connection.scopeGitlabId)];
+
+  const selected = source.filter((p) => gitlabProjectIds.includes(p.id));
+  if (selected.length === 0) return;
+
+  await db
+    .insert(trackedRepo)
+    .values(
+      selected.map((p) => ({
+        id: randomUUID(),
+        connectionId,
+        gitlabProjectId: p.id,
+        name: p.name,
+        pathWithNamespace: p.path_with_namespace,
+        webUrl: p.web_url,
+      })),
+    )
+    .onConflictDoNothing({ target: [trackedRepo.connectionId, trackedRepo.gitlabProjectId] });
+}
+
+export async function removeRepo(organizationId: string, repoId: string): Promise<void> {
+  const [row] = await db
+    .select({ connectionId: trackedRepo.connectionId })
+    .from(trackedRepo)
+    .innerJoin(gitlabConnection, eq(trackedRepo.connectionId, gitlabConnection.id))
+    .where(and(eq(trackedRepo.id, repoId), eq(gitlabConnection.organizationId, organizationId)))
+    .limit(1);
+  if (!row) return;
+  await db.delete(trackedRepo).where(eq(trackedRepo.id, repoId));
+}
+
+export async function removeConnection(
+  organizationId: string,
+  connectionId: string,
+): Promise<void> {
+  await requireOwnedConnection(organizationId, connectionId);
+  await db.delete(gitlabConnection).where(eq(gitlabConnection.id, connectionId));
+}
