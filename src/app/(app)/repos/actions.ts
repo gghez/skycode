@@ -73,7 +73,16 @@ export async function removeRepoAction(repoId: string): Promise<ActionResult<nul
 
 export async function removeConnectionAction(connectionId: string): Promise<ActionResult<null>> {
   const { organizationId } = await requireActiveOrganization();
-  await removeConnection(organizationId, connectionId);
-  revalidatePath("/repos");
-  return { ok: true, data: null };
+  try {
+    await removeConnection(organizationId, connectionId);
+    revalidatePath("/repos");
+    return { ok: true, data: null };
+  } catch {
+    // The service signals "connection not owned by this organization" with a
+    // plain Error, which `toMessage` cannot tell apart from any other failure.
+    // This is the only realistic throw path here (stale UI, or a concurrent
+    // delete), so we report it directly. A typed error in the service would be
+    // the better long-term fix.
+    return { ok: false, error: "Connexion introuvable." };
+  }
 }
