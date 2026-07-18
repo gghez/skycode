@@ -14,6 +14,13 @@ export class NotABotTokenError extends Error {
   }
 }
 
+export class ConnectionNotFoundError extends Error {
+  constructor() {
+    super("Connection not found for this organization");
+    this.name = "ConnectionNotFoundError";
+  }
+}
+
 export interface TrackedRepoView {
   id: string;
   gitlabProjectId: number;
@@ -229,7 +236,7 @@ async function requireOwnedConnection(
       and(eq(gitlabConnection.id, connectionId), eq(gitlabConnection.organizationId, organizationId)),
     )
     .limit(1);
-  if (!row) throw new Error("Connection not found for this organization");
+  if (!row) throw new ConnectionNotFoundError();
   return row;
 }
 
@@ -238,6 +245,10 @@ export async function listUntrackedProjects(
   connectionId: string,
 ): Promise<DiscoveredProject[]> {
   const connection = await requireOwnedConnection(organizationId, connectionId);
+  // A project-scoped connection tracks exactly one project (already tracked by
+  // addConnection), so there is nothing left to discover; avoid calling
+  // GitLab's group-projects endpoint with a project id, which 404s.
+  if (connection.scopeType !== "group") return [];
   const client = loadClientForConnection(connection);
   const projects = await client.listGroupProjects(connection.scopeGitlabId);
   const trackedIds = new Set(
@@ -273,7 +284,8 @@ export async function activateRepos(
       ? await client.listGroupProjects(connection.scopeGitlabId)
       : [await client.getProject(connection.scopeGitlabId)];
 
-  const selected = source.filter((p) => gitlabProjectIds.includes(p.id));
+  const selectedIds = new Set(gitlabProjectIds);
+  const selected = source.filter((p) => selectedIds.has(p.id));
   if (selected.length === 0) return;
 
   await db

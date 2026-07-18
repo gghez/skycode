@@ -9,6 +9,7 @@ import {
   removeConnection,
   removeRepo,
   NotABotTokenError,
+  ConnectionNotFoundError,
   type AddConnectionResult,
   type DiscoveredProject,
 } from "@/lib/repos/service";
@@ -22,6 +23,7 @@ function toMessage(e: unknown): string {
     return "Ce token n'est pas un token de projet ou de groupe (token personnel ?).";
   if (e instanceof GitlabNotFoundError) return "Projet ou groupe GitLab introuvable.";
   if (e instanceof GitlabUnavailableError) return "GitLab est injoignable pour le moment.";
+  if (e instanceof ConnectionNotFoundError) return "Connexion introuvable.";
   return "Une erreur inattendue est survenue.";
 }
 
@@ -77,12 +79,7 @@ export async function removeConnectionAction(connectionId: string): Promise<Acti
     await removeConnection(organizationId, connectionId);
     revalidatePath("/repos");
     return { ok: true, data: null };
-  } catch {
-    // The service signals "connection not owned by this organization" with a
-    // plain Error, which `toMessage` cannot tell apart from any other failure.
-    // This is the only realistic throw path here (stale UI, or a concurrent
-    // delete), so we report it directly. A typed error in the service would be
-    // the better long-term fix.
-    return { ok: false, error: "Connexion introuvable." };
+  } catch (e) {
+    return { ok: false, error: toMessage(e) };
   }
 }
