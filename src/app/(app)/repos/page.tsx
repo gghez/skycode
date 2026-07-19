@@ -39,11 +39,29 @@ export default async function ReposPage() {
           {connections.map((c) => (
             <section key={c.id} className="rounded-lg border">
               <header className="flex items-center justify-between border-b px-4 py-3">
-                <div className="text-sm">
-                  <span className="font-medium">@{c.botUsername}</span>{" "}
-                  <span className="text-muted-foreground">
-                    · {c.scopeType} · {c.instanceUrl}
-                  </span>
+                <div className="flex items-center gap-3 text-sm">
+                  {c.botAvatarUrl && isSafeHttpUrl(c.botAvatarUrl) && (
+                    // botAvatarUrl comes from a user-supplied (possibly self-hosted) GitLab
+                    // instance, so next/image's static remote-host allowlist can't be configured
+                    // for it.
+                    // eslint-disable-next-line @next/next/no-img-element -- see comment above
+                    <img
+                      src={c.botAvatarUrl}
+                      alt={`Avatar de ${c.botName}`}
+                      width={32}
+                      height={32}
+                      className="h-8 w-8 shrink-0 rounded-full object-cover"
+                    />
+                  )}
+                  <div>
+                    <p>
+                      Commentera en tant que{" "}
+                      <span className="font-medium">{c.botName}</span> (@{c.botUsername})
+                    </p>
+                    <p className="text-muted-foreground">
+                      {c.scopeType} · {c.instanceUrl}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <AddRepoDialog connectionId={c.id} />

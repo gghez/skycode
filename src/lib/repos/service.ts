@@ -1,3 +1,4 @@
+import "server-only";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
@@ -94,7 +95,7 @@ export interface ConnectionView {
 }
 
 export type AddConnectionResult =
-  | { scopeType: "project"; connectionId: string; repo: TrackedRepoView }
+  | { scopeType: "project"; connectionId: string }
   | { scopeType: "group"; connectionId: string; projects: DiscoveredProject[] };
 
 function repoView(row: typeof trackedRepo.$inferSelect): TrackedRepoView {
@@ -167,7 +168,7 @@ export async function addConnection(
 
   if (scope.scopeType === "project") {
     const project = await client.getProject(scope.scopeGitlabId);
-    const [repo] = await db
+    await db
       .insert(trackedRepo)
       .values({
         id: randomUUID(),
@@ -179,25 +180,9 @@ export async function addConnection(
       })
       .onConflictDoNothing({
         target: [trackedRepo.connectionId, trackedRepo.gitlabProjectId],
-      })
-      .returning();
+      });
 
-    const finalRepo =
-      repo ??
-      (
-        await db
-          .select()
-          .from(trackedRepo)
-          .where(
-            and(
-              eq(trackedRepo.connectionId, connectionId),
-              eq(trackedRepo.gitlabProjectId, project.id),
-            ),
-          )
-          .limit(1)
-      )[0];
-
-    return { scopeType: "project", connectionId, repo: repoView(finalRepo) };
+    return { scopeType: "project", connectionId };
   }
 
   const projects = await client.listGroupProjects(scope.scopeGitlabId);

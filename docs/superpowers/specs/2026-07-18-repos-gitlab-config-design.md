@@ -154,6 +154,18 @@ server-side.
   Repos page → remove a repository → remove the connection. The GitLab mocking strategy for e2e is
   to be settled in the implementation plan.
 
+## Known limitations
+
+- **SSRF via `instanceUrl` is not fully closed.** `addConnection` checks `instanceUrl`'s scheme
+  and rejects a hardcoded list of private-looking hostnames/IP literals, but this is a string
+  allowlist evaluated against the literal text the user typed. A public DNS name that resolves
+  (including via DNS rebinding, i.e. resolving differently between the check and the actual
+  `fetch`) to a private/internal address is not caught. This is accepted for now because skycode
+  has no production deployment and no real users yet. Before production, close it with a
+  resolve-then-verify check (resolve the hostname, validate the resulting IP is not
+  private/loopback/link-local, then connect to that IP) and/or a configured allowlist of
+  permitted GitLab instance hosts.
+
 ## Repository Structure (additions)
 
 ```
