@@ -61,12 +61,44 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://skycode:skycode@localhost:5432/skycode
+      # Throwaway CI key. Real deployments must use a secret.
+      SKYCODE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: skycode
+          POSTGRES_PASSWORD: skycode
+          POSTGRES_DB: skycode
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U skycode"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run test:integration
+
   e2e:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgres://skycode:skycode@localhost:5432/skycode
       BETTER_AUTH_URL: http://localhost:3000
       BETTER_AUTH_SECRET: ci-placeholder-secret
+      # Throwaway CI key. Real deployments must use a secret.
+      SKYCODE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
     services:
       postgres:
         image: postgres:16

@@ -17,6 +17,7 @@ npm run dev                   # http://localhost:3000
 ## Tests
 
 ```bash
-npm test         # unit (Vitest)
-npm run test:e2e # end-to-end (Playwright); requires db up + migrated
+npm test                 # unit (Vitest); no database required
+npm run test:integration # integration (Vitest) against a real Postgres; requires db up + migrated
+npm run test:e2e         # end-to-end (Playwright); requires db up + migrated
 ```
